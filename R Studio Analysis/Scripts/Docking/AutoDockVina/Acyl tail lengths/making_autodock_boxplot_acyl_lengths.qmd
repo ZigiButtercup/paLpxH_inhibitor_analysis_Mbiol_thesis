@@ -1,0 +1,125 @@
+---
+title: "making_autodock_boxplot_acyl_lengths"
+format: html
+---
+```{r}
+#correct 18th april even tho 7th april did do it ut mb didnt save idk
+# Load libraries
+library(tidyverse)
+library(here)
+
+# Set a reproducible relative path to your project folder
+project_dir <- here("Docking", "AutoDockVina",
+                    "acyl_tail_lengths",
+                    "autodock_pdbqt_outputs")
+
+all_files <- list.files(project_dir,
+                         pattern = "\\.pdbqt$",
+                         full.names = TRUE)
+
+# protein prefix
+protein_name <- "paLpxH"
+
+
+# 2) function to extract Vina score
+get_score <- function(f) {
+  lines <- readLines(f, warn = FALSE)
+  line <- grep("^REMARK VINA RESULT", lines, value = TRUE)[1]
+  if (!is.na(line)) as.numeric(strsplit(line, "\\s+")[[1]][4]) else NA
+}
+
+# 3) build results table
+results <- tibble(
+  file = all_files,
+  Tail = sub(
+    paste0("^", protein_name, "_(\\d+Ctail)_\\d+\\.pdbqt$"),
+    "\\1",
+    basename(all_files)
+  ),
+  Score = map_dbl(all_files, get_score)
+)
+#convert tails to factor
+results$Tail <- as.factor(results$Tail)
+# 4) plot
+binding_boxplot <- ggplot(results, aes(x = Tail, y = Score, fill=Tail)) +
+  geom_boxplot(width = 0.8, show.legend = FALSE) +
+  labs(
+   title = "Autodock Vina predicted binding affinities with increasing acyl tail length",
+    x = "Tail length",
+    y = "Affinity (kcal/mol)"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    plot.title = element_text(hjust = 0.5)
+  )
+show(binding_boxplot)
+#adding medina
+#binding_violin + geom_boxplot(width=0.1, color="red")
+#adding plots
+#binding_violin + geom_boxplot(width=0.15)
+```
+
+
+```{r}
+#OLD VERSION
+# required packages: "tidyverse"
+
+# Load libraries
+library(tidyverse)
+library(here)
+
+# Set a reproducible relative path to your project folder
+project_dir <- here("Docking", "AutoDockVina",
+                    "acyl_tail_lengths",
+                    "autodock_pdbqt_outputs")
+
+# protein prefix
+protein_name <- "paLpxH"
+
+# 1) find all relevant Vina output files in parent folder + subfolders
+all_files <- list.files(
+  path = "..",   # parent = "acyl tail lengths"
+  pattern = paste0("^", protein_name, "_\\d+Ctail_\\d+\\.pdbqt$"),
+  full.names = TRUE,
+  recursive = TRUE
+)
+
+# 2) function to extract Vina score
+get_score <- function(f) {
+  lines <- readLines(f, warn = FALSE)
+  line <- grep("^REMARK VINA RESULT", lines, value = TRUE)[1]
+  if (!is.na(line)) as.numeric(strsplit(line, "\\s+")[[1]][4]) else NA
+}
+
+# 3) build results table
+results <- tibble(
+  file = all_files,
+  Tail = sub(
+    paste0("^", protein_name, "_(\\d+Ctail)_\\d+\\.pdbqt$"),
+    "\\1",
+    basename(all_files)
+  ),
+  Score = map_dbl(all_files, get_score)
+)
+#convert tails to factor
+results$Tail <- as.factor(results$Tail)
+# 4) plot
+binding_violin <- ggplot(results, aes(x = Tail, y = Score, fill=Tail)) +
+  geom_boxplot(width = 0.8) +
+  labs(
+   title = "Vina binding scores by acyl tail length",
+    x = "Tail length",
+    y = "Affinity (kcal/mol)"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5)
+  )
+show(binding_violin)
+#adding medina
+#binding_violin + geom_boxplot(width=0.1, color="red")
+#adding plots
+#binding_violin + geom_boxplot(width=0.15)
+```

@@ -1,0 +1,4 @@
+LpxH_chainA_model1
+spacing    0.375
+npts       72 84 76
+center    37.888 26.078 -10.553

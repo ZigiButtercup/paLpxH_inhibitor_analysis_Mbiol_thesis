@@ -1,0 +1,10 @@
+---
+title: "finding_control_medoids"
+format: html
+---
+
+```{r}
+#convert pdbqt to pdbs thsi folder
+"C:\Users\hanab\OneDrive - Nexus365\LpxH_Project\Docking\AutoDockVina\acyl_tail_lengths\output_pdbqts_converted_to_pdbs\Control_pdb_conversions"
+
+```

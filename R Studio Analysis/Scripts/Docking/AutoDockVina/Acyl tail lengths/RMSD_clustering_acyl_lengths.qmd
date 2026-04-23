@@ -1,0 +1,267 @@
+---
+title: "RMSD_clustering_acyl_lengths"
+format: html
+---
+
+```{r}
+#install.packages("bio3d")  # if not already installed
+library(bio3d)
+
+# Load necessary packages
+library(here)
+library(stringr)
+library(fs)
+
+# Define input and output directories based on your folder structure
+input_dir <- here(
+  "Docking",
+  "AutoDockVina",
+  "acyl_tail_lengths",
+  "autodock_pdbqt_outputs"
+)           # Subfolder with your pdbqt files
+
+output_dir <- here(
+  "Docking",
+  "AutoDockVina",
+  "acyl_tail_lengths",
+  "output_pdbqts_converted_to_pdbs"
+)
+
+# Create the output folder if it doesn't exist
+dir_create(output_dir)
+
+# List all pdbqt files in the input folder
+pdbqt_files <- dir_ls(input_dir, glob = "*.pdbqt")
+
+# Function to split a single pdbqt file into separate pdb files
+split_pdbqt_to_pdb <- function(file_path, output_dir) {
+  # Read the file
+  lines <- readLines(file_path)
+  
+  # Find lines where models start
+  model_start <- which(str_detect(lines, "^MODEL"))
+  model_end <- which(str_detect(lines, "^ENDMDL"))
+  
+  # Loop through models
+  for (i in seq_along(model_start)) {
+    model_lines <- lines[model_start[i]:model_end[i]]
+    
+    # Create an output file name
+    base_name <- path_file(file_path) %>% str_remove("\\.pdbqt$")
+    pdb_file <- path(output_dir, paste0(base_name, "_model", i, ".pdb"))
+    
+    # Remove "MODEL" and "ENDMDL" lines for cleaner pdb
+    model_lines <- model_lines[!str_detect(model_lines, "^(MODEL|ENDMDL)")]
+    
+    # Write PDB
+    writeLines(model_lines, pdb_file)
+  }
+}
+
+# Loop through all pdbqt files and convert
+for (file in pdbqt_files) {
+  split_pdbqt_to_pdb(file, output_dir)
+}
+
+message("All pdbqt files have been converted to PDBs in 'output_pdbqts_converted_to_pdbs' folder.")
+
+# List all PDB files
+pdb_files <- dir_ls(output_dir, glob = "*.pdb")
+
+# Count them to check - should have 630 because 10 runs x 9 models in each run x 7 inhibitors = 630
+num_pdbs <- length(pdb_files)
+num_pdbs
+```
+
+```{r}
+
+library(here)
+library(dplyr)
+library(stringr)
+library(fs)
+
+# Path to output PDBs
+output_dir <- here(
+  "Docking",
+  "AutoDockVina",
+  "acyl_tail_lengths",
+  "output_pdbqts_converted_to_pdbs"
+)
+
+# Read all PDB files
+pdb_files <- dir_ls(output_dir, glob = "*.pdb")
+
+# Make dataframe and extract Ctail, run, and model
+file_df_acyl_lengths <- data.frame(
+  file = pdb_files,
+  stringsAsFactors = FALSE
+) %>%
+  mutate(
+    # Inhibitor number (Ctail 0–6)
+    inhibitor = as.integer(str_extract(basename(file), "(?<=paLpxH_)\\d+(?=Ctail)")),
+    
+    # Run repeat (1–10)
+    run_repeat = as.integer(str_extract(basename(file), "(?<=Ctail_)\\d+")),
+    
+    # Model number (pose)
+    model = as.integer(str_extract(basename(file), "(?<=_model)\\d+")),
+    
+    # Optional: unique label combining inhibitor + run for plotting
+    inhibitor_run = paste0("Ctail", inhibitor, "_run", run_repeat)
+  )
+
+
+
+```
+
+```{r}
+###cluster
+
+library(bio3d)
+library(cluster)
+
+inhibitors <- unique(file_df_acyl_lengths$inhibitor)
+
+cluster_inhibitor <- function(inhibitor_id, hcutoff = 2.0) {
+  
+#get all the file names that belong to one specific inhibitor type (eg. no tail, 1 carbon tail, 2 carbon tails etc)
+  files <- file_df_acyl_lengths$file[file_df_acyl_lengths$inhibitor == inhibitor_id]
+  
+#read the files extracted above as pdbs 
+  pdbs <- lapply(files, read.pdb)
+  
+  #From each stored pdb, extract the 3D atomic coordinates and store in lig_coords
+  lig_coords <- lapply(pdbs, function(pdb) pdb$xyz)
+  
+#combine the coordinates of each pose into a matrix, with each structure (pose) as a row
+  xyz <- do.call(rbind, lig_coords)
+#compute pairwise RMSD between all poses; we are asking how different is each pose from every other pose in 3D space? 
+  rd <- rmsd(xyz)
+
+#converts matrix to a distance objecta nd builds a dendogram (hierarchical cluster) which groups the inhibitor poses across all 10 runs based on how similar they are
+  hc <- hclust(as.dist(rd), method = "average")
+  
+#sets how similar poses must be to count as the same cluster. Poses that differ by ≤ 2 Å RMSD are considered the same cluster.
+  clusters <- cutree(hc, h = hcutoff)
+  
+#From each dominant cluster, represent one dominant pose
+  pam_fit <- pam(as.dist(rd), k = length(unique(clusters)))
+  medoid_files <- files[pam_fit$medoids]
+  
+#create list of important clustering results for one inhibitor in one place
+  list(
+    hc = hc, #store full hierarchical clustering tree in thsi list for later
+    clusters = clusters, #store whcih cluster each pose belongs to
+    cluster_sizes = table(clusters), #count no. of poses in each cluster and store
+    medoid_files = medoid_files #store file names of most representative pose (the medoid) of each cluster
+  )
+  
+}
+
+results_list <- list()
+for (inh in unique(file_df_acyl_tails$inhibitor)) {
+  results_list[[as.character(inh)]] <- cluster_inhibitor(inh, hcutoff = 2.0)
+}
+
+# Initialize an empty list to hold rows
+dominant_medoid_rows <- list()
+
+# Loop over each inhibitor
+for (inh in names(results_list)) {
+  
+  # Get cluster sizes for this inhibitor
+  cluster_sizes <- results_list[[inh]]$cluster_sizes
+  
+  # Find the cluster with the maximum size
+  dominant_cluster <- as.numeric(names(cluster_sizes)[which.max(cluster_sizes)])
+  
+  # Get the medoid file corresponding to that cluster
+  dominant_medoid <- results_list[[inh]]$medoid_files[dominant_cluster]
+  
+  # Create a row
+  df <- data.frame(
+    inhibitor = as.numeric(inh),
+    dominant_cluster = dominant_cluster,
+    medoid_file = dominant_medoid,
+    stringsAsFactors = FALSE
+  )
+  
+  # Add to the list
+  dominant_medoid_rows[[inh]] <- df
+}
+
+# Combine all rows into one data frame
+dominant_medoid_df <- do.call(rbind, dominant_medoid_rows)
+
+# Preview#The numbers in the dominant_cluster column represent which cluster each inhibitor’s poses belong to in the hierarchical clustering analysis.
+dominant_medoid_df
+
+# Extract coordinates of dominant medoids
+medoid_coords <- lapply(dominant_medoid_df$medoid_file, function(f) {
+  pdb <- read.pdb(f)
+  xyz <- pdb$xyz
+  # Optional: add a column indicating the file/inhibitor
+  data.frame(file = basename(f), xyz = I(list(xyz)))
+})
+
+# Combine all medoid coordinates into a single data frame
+medoid_coords_df <- do.call(rbind, medoid_coords)
+
+# Define correct folder (updated path + correct folder name)
+medoid_folder <- here(
+  "Docking",
+  "AutoDockVina",
+  "acyl_tail_lengths",
+  "medoid_files_acyls"
+)
+
+# Create the folder if it doesn't exist
+dir_create(medoid_folder)
+
+# Copy all medoid files into this folder
+file.copy(
+  dominant_medoid_df$medoid_file,
+  file.path(medoid_folder, basename(dominant_medoid_df$medoid_file))
+)
+```
+
+```{r}
+#deal w this bit later!!! idek if i need graphical stuff not sure
+plot(results_all$Inhibitor_2$hc,
+     main = "Inhibitor 2 RMSD Clustering",
+     xlab = "Docked poses",
+     sub = "",
+     cex = 0.6)
+
+library(dendextend)
+
+abline(h = 2.0, col = "red", lty = 2)
+
+library(dendextend)
+
+dend <- as.dendrogram(results_all$Inhibitor_2$hc)
+
+dend <- color_branches(
+  dend,
+  k = length(unique(results_all$Inhibitor_2$clusters))
+)
+
+plot(dend,
+     main = "Inhibitor 2 Clustered Poses",
+     cex = 0.6)
+
+barplot(results_all$Inhibitor_2$cluster_sizes,
+        main = "Cluster Sizes — Inhibitor 2",
+        xlab = "Cluster",
+        ylab = "Number of poses")
+
+
+num_clusters <- sapply(results_all, function(res)
+  length(unique(res$clusters))
+)
+
+barplot(num_clusters,
+        main = "Number of Pose Clusters per Inhibitor",
+        xlab = "Inhibitor",
+        ylab = "Number of clusters")
+```

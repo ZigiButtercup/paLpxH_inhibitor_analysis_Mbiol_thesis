@@ -1,0 +1,73 @@
+---
+title: "Making_autodock_controls_boxplots"
+format: html
+---
+
+```{r}
+# Load libraries
+library(tidyverse)
+
+library(here)
+
+#making a reproducible filepath 
+project_dir <- here(
+  "Docking",
+  "AutoDockVina",
+  "acyl_tail_lengths",
+  "autodock_pdbqt_outputs",
+  "controls_docking_outputs"
+)
+
+pdbqt_files <- list.files(project_dir, pattern = "\\.pdbqt$", full.names = TRUE)
+
+#check it lists 20 files (10 outputs for positive and 10 outputs for negative control)
+length(pdbqt_files)
+
+# Function to extract binding affinities from a single pdbqt file
+extract_affinities <- function(file_path) {
+  lines <- readLines(file_path)
+  # grep lines starting with REMARK VINA RESULT
+  vina_lines <- grep("^REMARK VINA RESULT:", lines, value = TRUE)
+  # Extract the first numeric value (binding affinity) from each line
+  affinities <- as.numeric(sapply(strsplit(vina_lines, "\\s+"), function(x) x[4]))
+  return(affinities)
+}
+
+# Loop through all files and store results
+results <- lapply(pdbqt_files, function(f) {
+  affinities <- extract_affinities(f)
+  tibble(
+    file = basename(f),
+    control = ifelse(grepl("negative_control", f), "Negative", "Positive"),
+    model = 1:length(affinities),
+    affinity = affinities
+  )
+})
+
+# Combine all results into one dataframe
+df <- bind_rows(results)
+
+# Preview
+print(df)
+
+# Boxplot of binding affinities
+ggplot(df, aes(x = control, y = affinity, fill = control)) +
+  geom_boxplot() +
+  geom_jitter(width = 0.2, alpha = 0.7) +
+  theme_minimal() +
+  labs(
+    title = "Binding Affinity of Models",
+    x = "Control Type",
+    y = "Binding Affinity (kcal/mol)"
+  )
+```
+
+```{r}
+t.test(affinity ~ control, data = df)
+
+	
+
+wilcox.test(affinity ~ control, data = df)
+
+#chat said both show as stat sig phewwwwwwwwwwwww
+```

@@ -1,0 +1,134 @@
+---
+title: "making_autodock_boxplot_chelators"
+format: html
+editor: visual
+---
+
+```{r}
+# Load libraries
+library(tidyverse)
+library(here)
+
+# Set project directory (NEW PATH YOU GAVE)
+project_dir <- here("Docking", "AutoDockVina",
+                    "chelating_groups",
+                    "autodock_pdbqt_outputs")
+
+# List all pdbqt files
+all_files <- list.files(project_dir,
+                         pattern = "\\.pdbqt$",
+                         full.names = TRUE)
+
+# protein prefix
+protein_name <- "paLpxH"
+
+# =========================
+# FUNCTION: extract Vina score
+# =========================
+get_score <- function(f) {
+  lines <- readLines(f, warn = FALSE)
+  line <- grep("^REMARK VINA RESULT", lines, value = TRUE)[1]
+  if (!is.na(line)) {
+    as.numeric(strsplit(line, "\\s+")[[1]][4])
+  } else {
+    NA
+  }
+}
+
+# =========================
+# BUILD RESULTS TABLE (UPDATED PARSING)
+# =========================
+results <- tibble(
+  file = all_files,
+  basename = basename(all_files),
+
+  # extract chelating group
+  Group = str_extract(basename(all_files),
+                      "(carboxylate|hydroxamate|phenolate|phosphate|phosphonate)group") |>
+          str_remove("group"),
+
+  # extract repeat number (1–10)
+  Repeat = as.integer(str_extract(basename(all_files), "(?<=group_)\\d+")),
+
+  # extract docking score
+  Score = map_dbl(all_files, get_score)
+)
+
+# convert to factors
+results$Group <- as.factor(results$Group)
+results$Repeat <- as.factor(results$Repeat)
+
+# =========================
+# BOXPLOT (same style as your original)
+# =========================
+binding_boxplot <- ggplot(results, aes(x = Group, y = Score, fill = Group)) +
+  geom_boxplot(width = 0.8, show.legend = FALSE) +
+  labs(
+    title = "AutoDock Vina predicted binding affinities across chelating groups",
+    x = "Chelating group",
+    y = "Affinity (kcal/mol)"
+  ) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    plot.title = element_text(hjust = 0.5)
+  )
+
+show(binding_boxplot)
+```
+
+```{r}
+#old code
+#correct 18th april even tho 7th april did do it ut mb didnt save idk
+# Load libraries
+library(tidyverse)
+library(here)
+
+# Set a reproducible relative path to your project folder
+project_dir <- here("Docking", "AutoDockVina",
+                    "chelating_groups",
+                    "autodock_pdbqt_outputs")
+
+all_files <- list.files(project_dir,
+                         pattern = "\\.pdbqt$",
+                         full.names = TRUE)
+
+# protein prefix
+protein_name <- "paLpxH"
+
+
+# 2) function to extract Vina score
+get_score <- function(f) {
+  lines <- readLines(f, warn = FALSE)
+  line <- grep("^REMARK VINA RESULT", lines, value = TRUE)[1]
+  if (!is.na(line)) as.numeric(strsplit(line, "\\s+")[[1]][4]) else NA
+}
+
+# 3) build results table
+results <- tibble(
+  file = all_files,
+  basename = basename(all_files),
+  
+  Group = str_match(basename(all_files),
+                    "paLpxH_([a-z]+group)_\\d+\\.pdbqt")[,2],
+  
+  Repeat = as.integer(str_match(basename(all_files),
+                    "paLpxH_[a-z]+group_(\\d+)\\.pdbqt")[,2]),
+  
+  Score = map_dbl(all_files, get_score)
+)
+#convert tails to factor
+results$Tail <- as.factor(results$Tail)
+# 4) plot
+results$Group <- as.factor(results$Group)
+results$Repeat <- as.factor(results$Repeat)
+
+ggplot(results, aes(x = Repeat, y = Score, fill = Group)) +
+  geom_boxplot() +
+  labs(
+    title = "Binding affinities per docking repeat",
+    x = "Repeat (1–10)",
+    y = "Affinity (kcal/mol)"
+  ) +
+  theme_classic(base_size = 14)
+```
